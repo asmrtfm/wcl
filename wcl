@@ -1,0 +1,93 @@
+#!/usr/bin/bash
+
+[[ "${1,,}" != +(\-)@(h)?(elp) ]] || { cat <<'EOL'
+NAME:
+   wcl - omni-directional line counter
+
+USAGE:
+   [<input ...> | ]wcl [<OPTIONS ...>] [<files|directories ...>]
+
+SYNOPSIS:
+
+   Wrapper for `wc -l` providing the following enhancements:
+
+    * ( Input agnostic )
+      If lines are piped in, they are counted first.
+      For any paths specified as positional parameters,
+       If <path> is a file, its lines are counted,
+       If <path> is a directory, its files are counted.
+      Any combination of inputs is permitted.
+
+    * ( Output formatting )
+
+OPTIONAL PARAMETERS:
+   -h,          : Show this helpful usage information.
+    --help
+
+   -l,          : Label the output(s)
+    --label      | `<count>: <input>`
+
+   -p, -c,      : Use comma-separated notation for numbers > 999.
+    --pretty,
+    --commas
+
+   -s,--sum,    : Output a single sum total of all counts;
+    -t,--total   | if labelling(`-l`) or verbose(`-v`) mode
+                 | is active, the total will instead be appended
+                 | as an additional line of output.
+
+   -v,          : Same as `-l -p -s`
+    --verbose    | labelled, comma-separation notated output
+                 |  with additional line for TOTAL.
+
+EOL
+	exit 0
+}
+
+for((a=1;a<=$#;a++)){
+	case "${!a}" in
+	\-[lL]|'--label') LABEL=true ;;
+	\-[tTsS]|'--total'|'--sum') TOTAL=true ;;
+	\-[pPcC]|'--pretty'|'--commas') PRETTY=true ;;
+	\-[vV]|'--verbose') PRETTY=${LABEL:=${TOTAL:=true}} ;;
+	*) if [[ -d "${!a}" ]]; then Dirs[${#Dirs[@]}]="${!a}"; else
+			[[ ! -f "${!a}" ]] || Files[${#Files[@]}]="${!a}"
+		fi
+	esac
+}
+
+if [ ! -t 0 ]; then
+	read Results[${#Results[@]}] < <(cat - | wc -l )
+	! ${LABEL:-false} || Labels[${#Labels[@]}]='<stdin>'
+fi
+
+for((i=0;i<${#Dirs[@]};i++)){
+	while read line; do
+   	#[[ "$line" != *total* ]] || continue
+   	Results[${#Results[@]}]=${line%\ *}
+		! ${LABEL:-false} || Labels[${#Labels[@]}]="${Dirs[i]}"
+	done < <(ls -A1 ${Dirs[i]} | wc -l )
+}
+
+if ((${#Files[@]} != 0)); then
+	while read line; do
+		#[[ "$line" != *total* ]] || continue
+		Results[${#Results[@]}]=${line%\ *}
+		! ${LABEL:-false} || Labels[${#Labels[@]}]="${line##*\ }"
+	done < <(wc -l ${Files[@]} )
+fi
+
+if ${TOTAL:-false} ; then
+	_Totally() { : "${*//[!0-9\ \.\-\+]/}" ; echo $(( ${_//\ /\+} )) ; }
+	Results[${#Results[@]}]=$(_Totally ${Results[@]}) && Labels[${#Results[@]}-1]='(TOTAL)'
+	if ! ${LABEL:-false} ; then
+		${PRETTY:-false} && printf "%'d\n" ${Results[-1]} || echo "${Results[-1]}"
+		exit 0
+	fi
+fi
+
+if ${PRETTY:-false} ; then
+	for((r=0;r<${#Results[@]};r++)){ echo "$(printf "%'d\n" ${Results[r]}) ${Labels[r]}"; } | column -t
+else
+	for((r=0;r<${#Results[@]};r++)){ echo "${Results[r]} ${Labels[r]}"; }
+fi
